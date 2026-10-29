@@ -39,6 +39,17 @@ class PortfolioTest {
     fun `totalValue is market value plus cash`() {
         val p = portfolio()
         assertEquals(82_000.0, p.totalValue, 0.001)
+        assertEquals(82_000.0, p.equity, 0.001)
+    }
+
+    @Test
+    fun `freeMargin is equity minus used margin`() {
+        val p = portfolio(cash = 50_000.0)
+        // accountBalance = 50000 + 30000 = 80000; equity = 82000; usedMargin = 30000 => freeMargin = 52000
+        assertEquals(30_000.0, p.totalUsedMargin, 0.001)
+        assertEquals(80_000.0, p.accountBalance, 0.001)
+        assertEquals(52_000.0, p.freeMargin, 0.001)
+        assertEquals(82_000.0 / 30_000.0 * 100, p.marginLevel, 0.001)
     }
 
     @Test

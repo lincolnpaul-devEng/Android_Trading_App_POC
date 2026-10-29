@@ -1,5 +1,7 @@
 package com.trading.app.domain.model
 
+enum class PositionSide { LONG, SHORT }
+
 data class Order(
     val id: String,
     val symbol: String,
@@ -11,6 +13,11 @@ data class Order(
     val price: Double? = null,       // for limit orders
     val stopPrice: Double? = null,   // for stop orders
     val trailAmount: Double? = null, // for trailing stop
+    val leverage: Int = 1,           // 1x, 2x, 5x, 10x, 20x
+    val positionSide: PositionSide = PositionSide.LONG,
+    val takeProfitPrice: Double? = null,
+    val stopLossPrice: Double? = null,
+    val specs: InstrumentSpecs = InstrumentSpecs(),
     val status: OrderStatus = OrderStatus.NEW,
     val avgFillPrice: Double? = null,
     val createdAt: Long = System.currentTimeMillis(),
@@ -23,6 +30,8 @@ data class Order(
         OrderStatus.PARTIALLY_FILLED,
         OrderStatus.PENDING_CANCEL
     )
+    val hasAutoClose: Boolean get() = takeProfitPrice != null || stopLossPrice != null
+    val assetClass: AssetClass get() = specs.assetClass
 }
 
 enum class OrderSide { BUY, SELL }

@@ -1,10 +1,12 @@
 package com.trading.app.di
 
 import com.trading.app.data.repository.MarketDataRepositoryImpl
+import com.trading.app.data.repository.NewsRepositoryImpl
 import com.trading.app.data.repository.OrderRepositoryImpl
 import com.trading.app.data.repository.PortfolioRepositoryImpl
 import com.trading.app.data.repository.WatchlistRepositoryImpl
 import com.trading.app.domain.repository.MarketDataRepository
+import com.trading.app.domain.repository.NewsRepository
 import com.trading.app.domain.repository.OrderRepository
 import com.trading.app.domain.repository.PortfolioRepository
 import com.trading.app.domain.repository.WatchlistRepository
@@ -33,4 +35,8 @@ abstract class AppModule {
     @Binds
     @Singleton
     abstract fun bindWatchlistRepository(impl: WatchlistRepositoryImpl): WatchlistRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindNewsRepository(impl: NewsRepositoryImpl): NewsRepository
 }

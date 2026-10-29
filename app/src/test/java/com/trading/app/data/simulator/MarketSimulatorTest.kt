@@ -390,4 +390,139 @@ class MarketSimulatorTest {
             cancelAndConsumeRemainingEvents()
         }
     }
+
+    // --- Leverage & Auto Close ---
+
+    @Test
+    fun `short order with leverage creates short position and deducts margin`() {
+        val initialCash = simulator.getCashBalance()
+        val shortOrder = Order(
+            id = "", symbol = "TSLA", side = OrderSide.SELL,
+            type = OrderType.MARKET, timeInForce = TimeInForce.DAY,
+            quantity = 10, leverage = 5, positionSide = PositionSide.SHORT
+        )
+        val result = simulator.placeOrder(shortOrder)
+        assertTrue(result.isSuccess)
+        val pos = simulator.getPositions().find { it.symbol == "TSLA" }
+        assertNotNull(pos)
+        assertEquals(PositionSide.SHORT, pos!!.side)
+        assertEquals(5, pos.leverage)
+        assertEquals(10, pos.quantity)
+        val expectedDeduction = (10 * pos.averageCost) / 5
+        assertEquals(initialCash - expectedDeduction, simulator.getCashBalance(), 0.01)
+    }
+
+    @Test
+    fun `order with auto close stores TP and SL targets on position`() {
+        val buy = Order(
+            id = "", symbol = "AAPL", side = OrderSide.BUY,
+            type = OrderType.MARKET, timeInForce = TimeInForce.DAY,
+            quantity = 5,
+            takeProfitPrice = 250.0,
+            stopLossPrice = 150.0
+        )
+        simulator.placeOrder(buy)
+        val pos = simulator.getPositions().find { it.symbol == "AAPL" }
+        assertNotNull(pos)
+        assertEquals(250.0, pos!!.takeProfitPrice)
+        assertEquals(150.0, pos.stopLossPrice)
+    }
+
+    // --- Multi-Asset Tests ---
+
+    @Test
+    fun `all 7 asset classes are present in simulator`() {
+        val allQuotes = simulator.getQuotesByAssetClass(null)
+        val assetClasses = allQuotes.map { it.assetClass }.toSet()
+        assertEquals(7, assetClasses.size)
+        assertTrue(assetClasses.contains(AssetClass.EQUITY))
+        assertTrue(assetClasses.contains(AssetClass.FOREX))
+        assertTrue(assetClasses.contains(AssetClass.INDEX))
+        assertTrue(assetClasses.contains(AssetClass.CRYPTO))
+        assertTrue(assetClasses.contains(AssetClass.COMMODITY))
+        assertTrue(assetClasses.contains(AssetClass.FUTURES))
+        assertTrue(assetClasses.contains(AssetClass.CFD))
+    }
+
+    @Test
+    fun `closePosition closes open position and records realized trade and transaction`() {
+        val buy = Order(
+            id = "", symbol = "AAPL", side = OrderSide.BUY,
+            type = OrderType.MARKET, timeInForce = TimeInForce.DAY,
+            quantity = 10, leverage = 2
+        )
+        simulator.placeOrder(buy)
+        assertNotNull(simulator.getPositions().find { it.symbol == "AAPL" })
+
+        val closeResult = simulator.closePosition("AAPL")
+        assertTrue(closeResult.isSuccess)
+        assertNull(simulator.getPositions().find { it.symbol == "AAPL" })
+        assertEquals(1, simulator.getClosedTrades().size)
+        assertEquals("AAPL", simulator.getClosedTrades()[0].symbol)
+        assertTrue(simulator.getTransactions().any { it.type == TransactionType.REALIZED_PNL })
+    }
+
+    @Test
+    fun `resetDemoAccount restores 100K balance and clears positions`() {
+        val buy = Order(
+            id = "", symbol = "MSFT", side = OrderSide.BUY,
+            type = OrderType.MARKET, timeInForce = TimeInForce.DAY,
+            quantity = 10
+        )
+        simulator.placeOrder(buy)
+        val portfolio = simulator.resetDemoAccount(100_000.0)
+        assertTrue(portfolio.positions.isEmpty())
+        assertEquals(100_000.0, portfolio.cashBalance, 0.001)
+        assertEquals(100_000.0, portfolio.freeMargin, 0.001)
+    }
+
+    @Test
+    fun `getAccountStatement summarizes balance deposits withdrawals and trades`() {
+        simulator.depositFunds(5_000.0)
+        val stmt = simulator.getAccountStatement()
+        assertEquals(105_000.0, stmt.closingBalance, 0.01)
+        assertTrue(stmt.transactions.isNotEmpty())
+    }
+
+    @Test
+    fun `getQuotesByAssetClass filters correctly`() {
+        val forex = simulator.getQuotesByAssetClass(AssetClass.FOREX)
+        assertTrue(forex.isNotEmpty())
+        assertTrue(forex.all { it.assetClass == AssetClass.FOREX })
+        assertTrue(forex.any { it.symbol == "EUR/USD" })
+        assertTrue(forex.any { it.symbol == "USD/TRY" })
+
+        val crypto = simulator.getQuotesByAssetClass(AssetClass.CRYPTO)
+        assertTrue(crypto.isNotEmpty())
+        assertTrue(crypto.all { it.assetClass == AssetClass.CRYPTO })
+        assertTrue(crypto.any { it.symbol == "BTC/USD" })
+
+        val commodities = simulator.getQuotesByAssetClass(AssetClass.COMMODITY)
+        assertTrue(commodities.any { it.symbol == "XAU/USD" })
+
+        val futures = simulator.getQuotesByAssetClass(AssetClass.FUTURES)
+        assertTrue(futures.any { it.symbol == "ESZ6" })
+
+        val cfds = simulator.getQuotesByAssetClass(AssetClass.CFD)
+        assertTrue(cfds.any { it.symbol == "US500.CFD" })
+    }
+
+    @Test
+    fun `futures order factors in contract multiplier for margin`() {
+        val initialCash = simulator.getCashBalance()
+        // ESZ6 has 50x multiplier
+        val futuresOrder = Order(
+            id = "", symbol = "ESZ6", side = OrderSide.BUY,
+            type = OrderType.MARKET, timeInForce = TimeInForce.DAY,
+            quantity = 1, leverage = 10
+        )
+        val result = simulator.placeOrder(futuresOrder)
+        assertTrue(result.isSuccess)
+        val pos = simulator.getPositions().find { it.symbol == "ESZ6" }
+        assertNotNull(pos)
+        // requiredMargin = (1 * price * 50) / 10
+        val expectedMargin = (pos!!.averageCost * 50.0) / 10.0
+        assertEquals(expectedMargin, pos.requiredMargin, 0.01)
+        assertEquals(initialCash - expectedMargin, simulator.getCashBalance(), 0.01)
+    }
 }

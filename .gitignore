@@ -22,7 +22,7 @@ build/
 
 # Local configuration file (sdk path, etc)
 local.properties
-
+secret.properties
 # Android Studio
 *.iml
 .idea/
@@ -88,3 +88,6 @@ screenshot_*.png
 
 # AI chat context
 .aichat/
+
+# Secrets (API keys)
+secret.properties

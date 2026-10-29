@@ -1,25 +1,43 @@
 package com.trading.app.data
 
+import com.trading.app.domain.model.AccountType
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
 /**
- * Controls whether the app uses live Finnhub data or the local simulator.
- *
- * In production: switch to LIVE and provide a real Finnhub API key in NetworkModule.
- * For demo/POC: SIMULATED runs entirely offline with realistic fake data.
- * HYBRID uses live data when available and falls back to simulator on failure.
+ * Controls whether the app uses live Finnhub data or the local simulator,
+ * as well as whether the user is trading on a Demo Account or Live Account.
  */
 enum class DataSourceMode {
     /** Use only the local market simulator — no network calls */
     SIMULATED,
-    /** Use Finnhub API for market data — requires valid API key and network */
+    /** Use Finnhub API & WebSocket for market data — requires valid API key and network */
     LIVE,
-    /** Try Finnhub first, fall back to simulator on failure */
+    /** Stream live Finnhub WebSocket + REST and seamlessly fall back / bridge with simulator */
     HYBRID
 }
 
 /**
- * Current data source configuration.
- * Change this to LIVE or HYBRID when a real Finnhub API key is configured.
+ * Global runtime data source and account mode configuration.
+ * Defaults to HYBRID (live Finnhub market data + multi-asset fallback) and DEMO trading account.
  */
 object DataSourceConfig {
-    var mode: DataSourceMode = DataSourceMode.SIMULATED
+    private val _modeFlow = MutableStateFlow(DataSourceMode.HYBRID)
+    val modeFlow: StateFlow<DataSourceMode> = _modeFlow.asStateFlow()
+
+    var mode: DataSourceMode
+        get() = _modeFlow.value
+        set(value) {
+            _modeFlow.value = value
+        }
+
+    private val _accountTypeFlow = MutableStateFlow(AccountType.DEMO)
+    val accountTypeFlow: StateFlow<AccountType> = _accountTypeFlow.asStateFlow()
+
+    var accountType: AccountType
+        get() = _accountTypeFlow.value
+        set(value) {
+            _accountTypeFlow.value = value
+        }
 }

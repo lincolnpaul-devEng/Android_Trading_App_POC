@@ -1,7 +1,10 @@
 package com.trading.app.di
 
+import com.trading.app.BuildConfig
 import com.trading.app.data.remote.FinnhubApi
 import com.trading.app.data.remote.FinnhubWebSocket
+import com.trading.app.data.remote.HistoricalDataClient
+import com.trading.app.data.remote.MarketauxApi
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -19,19 +22,13 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
 
-    /**
-     * Finnhub API key. In production, this would come from BuildConfig or encrypted storage.
-     * Free tier: 60 API calls/minute, WebSocket streaming included.
-     *
-     * Get your free key at: https://finnhub.io/register
-     */
-    private const val FINNHUB_API_KEY = "demo" // Replace with real key
     private const val FINNHUB_BASE_URL = "https://finnhub.io/api/v1/"
+    private const val MARKETAUX_BASE_URL = "https://api.marketaux.com/"
 
     @Provides
     @Singleton
     @Named("finnhubApiKey")
-    fun provideFinnhubApiKey(): String = FINNHUB_API_KEY
+    fun provideFinnhubApiKey(): String = BuildConfig.FINNHUB_API_KEY.ifBlank { "demo" }
 
     @Provides
     @Singleton
@@ -57,8 +54,18 @@ object NetworkModule {
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
             .writeTimeout(15, TimeUnit.SECONDS)
-            .pingInterval(30, TimeUnit.SECONDS) // Keep WebSocket alive
+            .pingInterval(20, TimeUnit.SECONDS)
             .build()
+    }
+
+    @Provides
+    @Singleton
+    fun provideHistoricalDataClient(): HistoricalDataClient {
+        val plainClient = OkHttpClient.Builder()
+            .connectTimeout(12, TimeUnit.SECONDS)
+            .readTimeout(12, TimeUnit.SECONDS)
+            .build()
+        return HistoricalDataClient(plainClient)
     }
 
     @Provides
@@ -84,5 +91,25 @@ object NetworkModule {
         @Named("finnhubApiKey") apiKey: String
     ): FinnhubWebSocket {
         return FinnhubWebSocket(okHttpClient, apiKey)
+    }
+
+    @Provides
+    @Singleton
+    fun provideMarketauxApi(): MarketauxApi {
+        val loggingInterceptor = HttpLoggingInterceptor().apply {
+            level = HttpLoggingInterceptor.Level.BASIC
+        }
+        val client = OkHttpClient.Builder()
+            .addInterceptor(loggingInterceptor)
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .build()
+
+        return Retrofit.Builder()
+            .baseUrl(MARKETAUX_BASE_URL)
+            .client(client)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+            .create(MarketauxApi::class.java)
     }
 }

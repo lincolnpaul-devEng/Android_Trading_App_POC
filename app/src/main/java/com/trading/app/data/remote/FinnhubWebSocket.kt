@@ -4,83 +4,172 @@ import android.util.Log
 import com.google.gson.Gson
 import com.trading.app.data.remote.model.FinnhubTrade
 import com.trading.app.data.remote.model.FinnhubTradeMessage
-import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
-import okhttp3.*
-import javax.inject.Inject
-import javax.inject.Singleton
+import com.trading.app.domain.model.FeedStatus
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.onTimeout
+import kotlinx.coroutines.selects.select
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
+import java.util.concurrent.TimeUnit
+import kotlin.math.min
+import kotlin.random.Random
 
 /**
- * Manages the Finnhub WebSocket connection for real-time price streaming.
+ * Single, long-lived Finnhub WebSocket (the free tier allows one connection per key).
  *
- * Finnhub WebSocket URL: wss://ws.finnhub.io?token=<API_KEY>
+ * Stability features:
+ *  - automatic reconnect with exponential backoff + jitter (1s → 30s cap)
+ *  - re-subscribes every symbol after each reconnect
+ *  - protocol pings every 20s and a silence watchdog (no frames for 45s ⇒ force reconnect)
+ *  - [reconnectNow] lets the app skip the backoff when the network comes back
  *
- * Subscribe by sending: {"type":"subscribe","symbol":"AAPL"}
- * Unsubscribe by sending: {"type":"unsubscribe","symbol":"AAPL"}
+ * Wire protocol: wss://ws.finnhub.io?token=KEY, send {"type":"subscribe","symbol":"AAPL"}.
  */
-@Singleton
-class FinnhubWebSocket @Inject constructor(
-    private val okHttpClient: OkHttpClient,
+class FinnhubWebSocket(
+    okHttpClient: OkHttpClient,
     private val apiKey: String
 ) {
-    private val gson = Gson()
     private val tag = "FinnhubWebSocket"
+    private val gson = Gson()
 
-    /**
-     * Returns a Flow that emits trade updates for the given symbols.
-     * The WebSocket connection is opened when the flow is collected and closed when cancelled.
-     */
-    fun streamTrades(symbols: List<String>): Flow<FinnhubTrade> = callbackFlow {
-        val request = Request.Builder()
-            .url("wss://ws.finnhub.io?token=$apiKey")
-            .build()
+    private val client: OkHttpClient = okHttpClient.newBuilder()
+        .apply { interceptors().clear() } // token is already in the URL
+        .pingInterval(20, TimeUnit.SECONDS)
+        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .build()
 
-        val ws = okHttpClient.newWebSocket(request, object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.d(tag, "WebSocket connected, subscribing to ${symbols.size} symbols")
-                symbols.forEach { symbol ->
-                    val msg = """{"type":"subscribe","symbol":"$symbol"}"""
-                    webSocket.send(msg)
+    private val _trades = MutableSharedFlow<FinnhubTrade>(
+        extraBufferCapacity = 1024, onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+    val trades: SharedFlow<FinnhubTrade> = _trades.asSharedFlow()
+
+    private val _status = MutableStateFlow(FeedStatus.CONNECTING)
+    val status: StateFlow<FeedStatus> = _status.asStateFlow()
+
+    private val wake = Channel<Unit>(Channel.CONFLATED)
+    @Volatile private var lastFrameAt = 0L
+    @Volatile private var socket: WebSocket? = null
+    private var loop: Job? = null
+
+    /** Opens the stream (idempotent) and keeps it alive until [stop]. */
+    fun start(scope: CoroutineScope, symbols: List<String>) {
+        if (loop?.isActive == true) return
+        if (apiKey.isBlank()) {
+            _status.value = FeedStatus.OFFLINE
+            return
+        }
+        loop = scope.launch {
+            var attempt = 0
+            while (isActive) {
+                _status.value = when {
+                    attempt == 0 -> FeedStatus.CONNECTING
+                    attempt < 4 -> FeedStatus.RECONNECTING
+                    else -> FeedStatus.OFFLINE
                 }
-            }
+                val closed = CompletableDeferred<Unit>()
+                val request = Request.Builder().url("wss://ws.finnhub.io?token=$apiKey").build()
+                val opened = CompletableDeferred<Unit>()
+                val ws = client.newWebSocket(request, Listener(symbols, opened, closed))
+                socket = ws
 
-            override fun onMessage(webSocket: WebSocket, text: String) {
-                try {
-                    val message = gson.fromJson(text, FinnhubTradeMessage::class.java)
-                    if (message.type == "trade" && message.data != null) {
-                        message.data.forEach { trade ->
-                            trySend(trade)
+                val watchdog = launch {
+                    while (isActive) {
+                        delay(10_000)
+                        if (opened.isCompleted && System.currentTimeMillis() - lastFrameAt > 45_000) {
+                            Log.w(tag, "No frames for 45s, forcing reconnect")
+                            ws.cancel()
                         }
                     }
-                } catch (e: Exception) {
-                    Log.e(tag, "Error parsing WebSocket message", e)
+                }
+                closed.await()
+                watchdog.cancel()
+                socket = null
+                if (!isActive) break
+
+                attempt = if (opened.isCompleted) 1 else attempt + 1
+                val backoff = backoffMillis(attempt)
+                Log.d(tag, "Reconnecting in ${backoff}ms (attempt $attempt)")
+                select<Unit> {
+                    wake.onReceive { attempt = 1 }
+                    onTimeout(backoff) {}
                 }
             }
+        }
+    }
 
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e(tag, "WebSocket failure: ${t.message}", t)
-                close(t)
-            }
+    /** Skip the remaining backoff (e.g. connectivity regained). */
+    fun reconnectNow() {
+        wake.trySend(Unit)
+    }
 
-            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                Log.d(tag, "WebSocket closing: $code $reason")
-                webSocket.close(1000, null)
-            }
+    fun stop() {
+        loop?.cancel()
+        loop = null
+        socket?.close(1000, "stopped")
+        socket = null
+    }
 
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                Log.d(tag, "WebSocket closed: $code $reason")
-                close()
-            }
-        })
+    private inner class Listener(
+        private val symbols: List<String>,
+        private val opened: CompletableDeferred<Unit>,
+        private val closed: CompletableDeferred<Unit>
+    ) : WebSocketListener() {
+        override fun onOpen(webSocket: WebSocket, response: Response) {
+            Log.d(tag, "Connected, subscribing to ${symbols.size} symbols")
+            lastFrameAt = System.currentTimeMillis()
+            opened.complete(Unit)
+            _status.value = FeedStatus.LIVE
+            symbols.forEach { webSocket.send("""{"type":"subscribe","symbol":"$it"}""") }
+        }
 
-        awaitClose {
-            Log.d(tag, "Flow cancelled, unsubscribing and closing WebSocket")
-            symbols.forEach { symbol ->
-                val msg = """{"type":"unsubscribe","symbol":"$symbol"}"""
-                ws.send(msg)
-            }
-            ws.close(1000, "Flow cancelled")
+        override fun onMessage(webSocket: WebSocket, text: String) {
+            lastFrameAt = System.currentTimeMillis()
+            parseTrades(text).forEach { _trades.tryEmit(it) }
+        }
+
+        override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+            webSocket.close(1000, null)
+        }
+
+        override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+            Log.d(tag, "Closed: $code $reason")
+            closed.complete(Unit)
+        }
+
+        override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+            Log.w(tag, "Failure (${response?.code}): ${t.message}")
+            closed.complete(Unit)
+        }
+    }
+
+    /** Parses a Finnhub frame. Returns trades for `type=trade`, nothing for ping/other. */
+    fun parseTrades(text: String): List<FinnhubTrade> = try {
+        val msg = gson.fromJson(text, FinnhubTradeMessage::class.java)
+        if (msg?.type == "trade") msg.data.orEmpty().filter { it.price > 0 } else emptyList()
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    companion object {
+        fun backoffMillis(attempt: Int): Long {
+            val base = 1000L shl min(attempt - 1, 5).coerceAtLeast(0) // 1,2,4,8,16,32s
+            return min(base, 30_000L) + Random.nextLong(0, 500)
         }
     }
 }

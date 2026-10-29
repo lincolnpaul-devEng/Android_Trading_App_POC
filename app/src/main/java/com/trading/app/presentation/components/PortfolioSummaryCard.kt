@@ -63,6 +63,18 @@ fun PortfolioSummaryCard(
                 if (portfolio.dayPnL >= 0) ProfitGreen else LossRed)
             SummaryItem("Buying Power", Formatters.formatCurrency(portfolio.buyingPower))
         }
+
+        if (portfolio.totalUsedMargin > 0) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                SummaryItem("Used Margin", Formatters.formatCurrency(portfolio.totalUsedMargin), ChartPurple)
+                SummaryItem("Free Margin", Formatters.formatCurrency(portfolio.freeMargin), PrimaryBlue)
+                SummaryItem("Margin Level", "${String.format("%.1f", portfolio.marginLevel)}%")
+            }
+        }
     }
 }
 

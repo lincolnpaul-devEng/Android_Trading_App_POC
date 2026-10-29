@@ -42,4 +42,18 @@ class StockQuoteTest {
         val after = System.currentTimeMillis()
         assertTrue(q.timestamp in before..after)
     }
+
+    @Test
+    fun `spreadPips calculates correctly for Forex pair`() {
+        val fxQuote = quote().copy(
+            symbol = "EUR/USD",
+            bid = 1.0850,
+            ask = 1.08515,
+            specs = InstrumentSpecs(assetClass = AssetClass.FOREX, pipSize = 0.0001)
+        )
+        // Spread = 0.00015 -> 1.5 pips
+        assertEquals(0.00015, fxQuote.spread, 0.000001)
+        assertEquals(1.5, fxQuote.spreadPips, 0.01)
+        assertEquals(AssetClass.FOREX, fxQuote.assetClass)
+    }
 }

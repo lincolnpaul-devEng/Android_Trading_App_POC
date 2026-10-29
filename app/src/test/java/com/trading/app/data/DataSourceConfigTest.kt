@@ -1,5 +1,6 @@
 package com.trading.app.data
 
+import com.trading.app.domain.model.AccountType
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -11,16 +12,15 @@ class DataSourceConfigTest {
     }
 
     @Test
-    fun `mode can be changed to SIMULATED`() {
-        val original = DataSourceConfig.mode
-        DataSourceConfig.mode = DataSourceMode.SIMULATED
-        assertEquals(DataSourceMode.SIMULATED, DataSourceConfig.mode)
-        DataSourceConfig.mode = original // restore
+    fun `default accountType is DEMO`() {
+        assertEquals(AccountType.DEMO, DataSourceConfig.accountType)
     }
 
     @Test
-    fun `mode can be changed to LIVE`() {
+    fun `mode can be changed to SIMULATED and LIVE`() {
         val original = DataSourceConfig.mode
+        DataSourceConfig.mode = DataSourceMode.SIMULATED
+        assertEquals(DataSourceMode.SIMULATED, DataSourceConfig.mode)
         DataSourceConfig.mode = DataSourceMode.LIVE
         assertEquals(DataSourceMode.LIVE, DataSourceConfig.mode)
         DataSourceConfig.mode = original

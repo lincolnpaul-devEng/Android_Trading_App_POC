@@ -11,5 +11,6 @@ interface MarketDataRepository {
     fun getMarketIndices(): Flow<List<MarketIndex>>
     fun getSectorPerformance(): Flow<List<SectorPerformance>>
     fun getTopMovers(): Flow<List<StockQuote>>
+    fun getQuotesByAssetClass(assetClass: AssetClass? = null): Flow<List<StockQuote>>
     fun searchSymbols(query: String): Flow<List<StockQuote>>
 }

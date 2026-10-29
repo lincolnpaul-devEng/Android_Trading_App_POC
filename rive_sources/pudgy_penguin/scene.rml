@@ -1,0 +1,129 @@
+<Rive version="1" kind="fragment">
+    <Artboard defaultStateMachineId="0:10" width="200" height="200" name="PudgyPenguin" id="0:1">
+        <!-- 1. Eye Highlights (Top-most) -->
+        <Shape x="81" y="91" name="LeftHighlight">
+            <Ellipse width="5" height="6" name="HighlightShape"/>
+            <Fill name="HighFill">
+                <SolidColor colorValue="FFFFFFFF" name="White"/>
+            </Fill>
+        </Shape>
+        <Shape x="125" y="91" name="RightHighlight">
+            <Ellipse width="5" height="6" name="HighlightShape"/>
+            <Fill name="HighFill">
+                <SolidColor colorValue="FFFFFFFF" name="White"/>
+            </Fill>
+        </Shape>
+
+        <!-- 2. Eyes -->
+        <Shape x="78" y="94" name="LeftEye">
+            <Ellipse width="14" height="18" name="LeftEyeShape"/>
+            <Fill name="EyeFill">
+                <SolidColor colorValue="FF0F172A" name="Dark"/>
+            </Fill>
+        </Shape>
+        <Shape x="122" y="94" name="RightEye">
+            <Ellipse width="14" height="18" name="RightEyeShape"/>
+            <Fill name="EyeFill">
+                <SolidColor colorValue="FF0F172A" name="Dark"/>
+            </Fill>
+        </Shape>
+
+        <!-- 3. Beak -->
+        <Shape x="100" y="108" name="Beak" id="0:104">
+            <Triangle originX="0.5" originY="0.5" width="22" height="15" name="BeakShape"/>
+            <Fill name="BeakFill">
+                <SolidColor colorValue="FFF97316" name="Orange"/>
+            </Fill>
+        </Shape>
+
+        <!-- 4. Blush Cheeks -->
+        <Shape x="66" y="112" name="LeftCheek">
+            <Ellipse width="18" height="12" name="CheekShape"/>
+            <Fill name="CheekFill">
+                <SolidColor colorValue="88F472B6" name="Pink"/>
+            </Fill>
+        </Shape>
+        <Shape x="134" y="112" name="RightCheek">
+            <Ellipse width="18" height="12" name="CheekShape"/>
+            <Fill name="CheekFill">
+                <SolidColor colorValue="88F472B6" name="Pink"/>
+            </Fill>
+        </Shape>
+
+        <!-- 5. White Belly -->
+        <Shape x="100" y="125" name="Belly">
+            <Ellipse width="96" height="106" name="BellyShape"/>
+            <Fill name="BellyFill">
+                <SolidColor colorValue="FFFFFFFF" name="White"/>
+            </Fill>
+        </Shape>
+
+        <!-- 6. Left Flipper -->
+        <Shape x="34" y="122" rotation="28" name="LeftFlipper" id="0:105">
+            <Ellipse width="26" height="52" name="FlipperShape"/>
+            <Fill name="FlipperFill">
+                <SolidColor colorValue="FF3B82F6" name="DarkerBlue"/>
+            </Fill>
+        </Shape>
+
+        <!-- 7. Right Flipper (Waving!) -->
+        <Shape x="166" y="120" rotation="-32" name="RightFlipper" id="0:106">
+            <Ellipse width="26" height="52" name="FlipperShape"/>
+            <Fill name="FlipperFill">
+                <SolidColor colorValue="FF3B82F6" name="DarkerBlue"/>
+            </Fill>
+        </Shape>
+
+        <!-- 8. Main Body Group (behind eyes, beak, belly) -->
+        <Shape x="100" y="112" name="BodyRoot" id="0:100">
+            <Ellipse width="136" height="146" name="BodyShape"/>
+            <Fill name="BodyFill">
+                <SolidColor colorValue="FF5B9BF5" name="Blue"/>
+            </Fill>
+        </Shape>
+
+        <!-- 9. Background Soft Circle Badge (Bottom-most, behind everything) -->
+        <Shape x="100" y="100" name="Bg">
+            <Ellipse width="192" height="192" name="BgShape"/>
+            <Fill name="BgFill">
+                <SolidColor colorValue="FFF0F7FF" name="LightBlue"/>
+            </Fill>
+        </Shape>
+
+        <!-- State Machine & Smooth Animation -->
+        <StateMachine name="State Machine 1" id="0:10">
+            <StateMachineLayer name="Layer 1" id="0:11">
+                <AnyState x="0" y="0"/>
+                <ExitState x="0" y="0"/>
+                <EntryState>
+                    <StateTransition stateToId="0:12"/>
+                </EntryState>
+                <AnimationState animationId="0:20" id="0:12"/>
+            </StateMachineLayer>
+        </StateMachine>
+
+        <LinearAnimation loopValue="1" duration="60" name="Idle" id="0:20">
+            <!-- Breathing Scale on Body -->
+            <KeyedObject objectId="0:100">
+                <KeyedProperty property="scaleY">
+                    <KeyFrameDouble value="1" frame="0" interpolationType="linear"/>
+                    <KeyFrameDouble value="0.96" frame="30" interpolationType="linear"/>
+                    <KeyFrameDouble value="1" frame="60" interpolationType="linear"/>
+                </KeyedProperty>
+                <KeyedProperty property="scaleX">
+                    <KeyFrameDouble value="1" frame="0" interpolationType="linear"/>
+                    <KeyFrameDouble value="1.04" frame="30" interpolationType="linear"/>
+                    <KeyFrameDouble value="1" frame="60" interpolationType="linear"/>
+                </KeyedProperty>
+            </KeyedObject>
+            <!-- Waving Right Flipper -->
+            <KeyedObject objectId="0:106">
+                <KeyedProperty property="rotation">
+                    <KeyFrameDouble value="-0.55" frame="0" interpolationType="linear"/>
+                    <KeyFrameDouble value="-0.85" frame="30" interpolationType="linear"/>
+                    <KeyFrameDouble value="-0.55" frame="60" interpolationType="linear"/>
+                </KeyedProperty>
+            </KeyedObject>
+        </LinearAnimation>
+    </Artboard>
+</Rive>

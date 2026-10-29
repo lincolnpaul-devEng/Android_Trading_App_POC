@@ -1,6 +1,7 @@
 package com.trading.app.presentation.stockdetail
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -14,7 +15,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -56,7 +59,7 @@ fun StockDetailScreen(
             state.quote?.let {
                 TradeButton(
                     symbol = viewModel.symbol,
-                    price = it.lastPrice,
+                    quote = it,
                     onTrade = { onTrade(viewModel.symbol) }
                 )
             }
@@ -76,6 +79,16 @@ fun StockDetailScreen(
                 }
             }
 
+            // Active Open Position Card with instant Close button
+            state.openPosition?.let { pos ->
+                item {
+                    OpenPositionBanner(
+                        position = pos,
+                        onClosePosition = { viewModel.closeOpenPosition() }
+                    )
+                }
+            }
+
             // Interval selector
             item {
                 Row(
@@ -86,19 +99,54 @@ fun StockDetailScreen(
                         IntervalChip(
                             label = interval,
                             isSelected = state.selectedInterval == interval,
-                            onClick = { viewModel.selectInterval(interval) }
+                            onClick = { viewModel.selectInterval(interval) },
+                            modifier = Modifier.weight(1f)
                         )
                     }
                 }
             }
 
-            // Candlestick chart
+            // Technical Indicator Chips (EMA 20, EMA 50, Bollinger Bands)
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    IndicatorChip(
+                        label = "EMA 20",
+                        isActive = state.showEma20,
+                        activeColor = Color(0xFFF1E05A),
+                        onClick = { viewModel.toggleEma20() },
+                        modifier = Modifier.weight(1f)
+                    )
+                    IndicatorChip(
+                        label = "EMA 50",
+                        isActive = state.showEma50,
+                        activeColor = Color(0xFF58A6FF),
+                        onClick = { viewModel.toggleEma50() },
+                        modifier = Modifier.weight(1f)
+                    )
+                    IndicatorChip(
+                        label = "BOLL (20,2)",
+                        isActive = state.showBollingerBands,
+                        activeColor = Color(0xFF26A69A),
+                        onClick = { viewModel.toggleBollingerBands() },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            // Candlestick chart with live overlay lines & indicators
             item {
                 CandlestickChart(
                     candles = state.candles,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(320.dp)
+                        .height(320.dp),
+                    openPosition = state.openPosition,
+                    showEma20 = state.showEma20,
+                    showEma50 = state.showEma50,
+                    showBollingerBands = state.showBollingerBands
                 )
             }
 
@@ -125,6 +173,61 @@ fun StockDetailScreen(
 }
 
 @Composable
+private fun OpenPositionBanner(
+    position: com.trading.app.domain.model.Position,
+    onClosePosition: () -> Unit
+) {
+    val pnlColor = if (position.isProfit) ProfitGreen else LossRed
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(DarkCard)
+            .padding(14.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "OPEN ${position.side.name} • ${position.quantity} @ ${Formatters.formatPrice(position.averageCost)} (${position.leverage}x)",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "P&L: ${if (position.isProfit) "+" else ""}${Formatters.formatCurrency(position.unrealizedPnL)} (${String.format("%.2f", position.unrealizedPnLPercent)}%)",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = pnlColor,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        Button(
+            onClick = onClosePosition,
+            colors = ButtonDefaults.buttonColors(containerColor = LossRed),
+            shape = RoundedCornerShape(8.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+        ) {
+            Text(
+                text = "Close Position",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary,
+                maxLines = 1,
+                softWrap = false
+            )
+        }
+    }
+}
+
+@Composable
 private fun PriceHeader(quote: com.trading.app.domain.model.StockQuote) {
     Column {
         FlashingPriceText(
@@ -139,19 +242,27 @@ private fun PriceHeader(quote: com.trading.app.domain.model.StockQuote) {
 }
 
 @Composable
-private fun IntervalChip(label: String, isSelected: Boolean, onClick: () -> Unit) {
+private fun IntervalChip(
+    label: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     Box(
-        modifier = Modifier
+        modifier = modifier
             .clip(RoundedCornerShape(8.dp))
             .background(if (isSelected) PrimaryBlue else DarkSurfaceVariant)
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .padding(vertical = 8.dp),
+        contentAlignment = Alignment.Center
     ) {
         Text(
             text = label,
             fontSize = 12.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-            color = if (isSelected) DarkBackground else TextSecondary
+            color = if (isSelected) DarkBackground else TextSecondary,
+            maxLines = 1,
+            softWrap = false
         )
     }
 }
@@ -196,38 +307,95 @@ private fun QuoteDetails(quote: com.trading.app.domain.model.StockQuote) {
 }
 
 @Composable
-private fun TradeButton(symbol: String, price: Double, onTrade: () -> Unit) {
+private fun IndicatorChip(
+    label: String,
+    isActive: Boolean,
+    activeColor: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (isActive) activeColor.copy(alpha = 0.2f) else DarkSurfaceVariant)
+            .border(
+                width = 1.dp,
+                color = if (isActive) activeColor else Color.Transparent,
+                shape = RoundedCornerShape(8.dp)
+            )
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            fontSize = 11.sp,
+            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+            color = if (isActive) activeColor else TextSecondary,
+            maxLines = 1,
+            softWrap = false
+        )
+    }
+}
+
+@Composable
+private fun TradeButton(
+    symbol: String,
+    quote: com.trading.app.domain.model.StockQuote,
+    onTrade: () -> Unit
+) {
     Surface(
         color = DarkSurface,
         tonalElevation = 8.dp,
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Button(
-                onClick = onTrade,
-                modifier = Modifier.weight(1f).height(48.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = ProfitGreen),
-                shape = RoundedCornerShape(12.dp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Default.ShoppingCart, contentDescription = null, tint = DarkBackground)
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Buy", fontWeight = FontWeight.Bold, color = DarkBackground)
+                Text(
+                    text = "Spread: ${Formatters.formatPrice(quote.spread)}",
+                    fontSize = 11.sp,
+                    color = TextTertiary
+                )
             }
-            OutlinedButton(
-                onClick = onTrade,
-                modifier = Modifier.weight(1f).height(48.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = LossRed),
-                border = ButtonDefaults.outlinedButtonBorder(enabled = true).copy(
-                    brush = androidx.compose.ui.graphics.SolidColor(LossRed)
-                ),
-                shape = RoundedCornerShape(12.dp)
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text("Sell", fontWeight = FontWeight.Bold, color = LossRed)
+                // Quick Sell @ Bid
+                Button(
+                    onClick = onTrade,
+                    modifier = Modifier.weight(1f).height(46.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = LossRed),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("SELL", fontWeight = FontWeight.ExtraBold, fontSize = 12.sp, color = Color.White)
+                        Text(Formatters.formatPrice(quote.bid), fontSize = 11.sp, color = Color.White.copy(alpha = 0.85f))
+                    }
+                }
+
+                // Quick Buy @ Ask
+                Button(
+                    onClick = onTrade,
+                    modifier = Modifier.weight(1f).height(46.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = ProfitGreen),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("BUY", fontWeight = FontWeight.ExtraBold, fontSize = 12.sp, color = DarkBackground)
+                        Text(Formatters.formatPrice(quote.ask), fontSize = 11.sp, color = DarkBackground.copy(alpha = 0.85f))
+                    }
+                }
             }
         }
     }

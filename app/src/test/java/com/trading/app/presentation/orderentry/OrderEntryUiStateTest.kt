@@ -70,4 +70,42 @@ class OrderEntryUiStateTest {
         val s = state(quantity = "100", type = OrderType.TRAILING_STOP, currentPrice = 300.0)
         assertEquals(30_000.0, s.estimatedCost, 0.001)
     }
+
+    @Test
+    fun `requiredMargin correctly calculates with leverage`() {
+        val s = state(quantity = "10", currentPrice = 100.0).copy(leverage = 5)
+        // Notional = 1000. 5x leverage => requiredMargin = 200
+        assertEquals(1000.0, s.estimatedCost, 0.001)
+        assertEquals(200.0, s.requiredMargin, 0.001)
+    }
+
+    @Test
+    fun `calculated TP and SL for short position matching reference math`() {
+        // Short at $100 with 2x leverage:
+        // +10% PnL on 2x leverage = 5% price drop -> TP = $95.00
+        // -10% PnL on 2x leverage = 5% price rise -> SL = $105.00
+        val s = state(quantity = "1", currentPrice = 100.0, side = OrderSide.SELL).copy(
+            leverage = 2,
+            autoCloseMode = com.trading.app.presentation.components.AutoCloseMode.PERCENT_PNL,
+            takeProfit = "10",
+            stopLoss = "10"
+        )
+        assertEquals(95.0, s.calculatedTpPrice!!, 0.001)
+        assertEquals(105.0, s.calculatedSlPrice!!, 0.001)
+    }
+
+    @Test
+    fun `calculated TP and SL for long position with percentage PnL`() {
+        // Long at $100 with 5x leverage:
+        // +25% PnL on 5x leverage = 5% price rise -> TP = $105.00
+        // -25% PnL on 5x leverage = 5% price drop -> SL = $95.00
+        val s = state(quantity = "1", currentPrice = 100.0, side = OrderSide.BUY).copy(
+            leverage = 5,
+            autoCloseMode = com.trading.app.presentation.components.AutoCloseMode.PERCENT_PNL,
+            takeProfit = "25",
+            stopLoss = "25"
+        )
+        assertEquals(105.0, s.calculatedTpPrice!!, 0.001)
+        assertEquals(95.0, s.calculatedSlPrice!!, 0.001)
+    }
 }
