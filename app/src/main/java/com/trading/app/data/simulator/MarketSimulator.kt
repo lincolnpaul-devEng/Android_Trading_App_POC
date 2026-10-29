@@ -805,7 +805,8 @@ class MarketSimulator {
         closeQty: Int,
         fillPrice: Double,
         reason: CloseReason,
-        orderPrefix: String
+        orderPrefix: String,
+        recordOrder: Boolean = true
     ): Order {
         val multiplier = pos.specs.contractMultiplier
         val pnl = when (pos.side) {
@@ -830,7 +831,9 @@ class MarketSimulator {
             specs = pos.specs,
             updatedAt = System.currentTimeMillis()
         )
-        orders.add(closeOrder)
+        if (recordOrder) {
+            orders.add(closeOrder)
+        }
 
         val closedTrade = ClosedTrade(
             ticket = "TRD-${tradeIdCounter++}",
@@ -1199,21 +1202,31 @@ class MarketSimulator {
         val multiplier = seed.specs.contractMultiplier
         val requiredMargin = (order.quantity * fillPrice * multiplier) / order.leverage
 
+        val existingForMargin = positions[order.symbol]
+        val isOppositeClose = existingForMargin != null && (
+            (order.side == OrderSide.BUY && existingForMargin.side == PositionSide.SHORT) ||
+            (order.side == OrderSide.SELL && existingForMargin.side == PositionSide.LONG)
+        )
+        val excessQty = if (isOppositeClose) maxOf(0, order.quantity - existingForMargin!!.quantity) else order.quantity
+        val effectiveRequiredMargin = if (excessQty > 0) {
+            (excessQty * fillPrice * multiplier) / order.leverage
+        } else 0.0
+
         if (order.side == OrderSide.BUY) {
-            if (order.leverage == 1 && order.positionSide == PositionSide.LONG) {
+            if (order.leverage == 1 && order.positionSide == PositionSide.LONG && !isOppositeClose) {
                 val cost = order.quantity * (order.price ?: fillPrice) * multiplier
                 if (cost > cashBalance) return Result.failure(Exception("Insufficient buying power"))
-            } else {
-                if (requiredMargin > cashBalance) return Result.failure(Exception("Insufficient buying power"))
+            } else if (effectiveRequiredMargin > 0) {
+                if (effectiveRequiredMargin > cashBalance) return Result.failure(Exception("Insufficient buying power"))
             }
         }
 
         if (order.side == OrderSide.SELL) {
-            if (order.leverage == 1 && order.positionSide == PositionSide.LONG) {
+            if (order.leverage == 1 && order.positionSide == PositionSide.LONG && !isOppositeClose) {
                 val held = positions[order.symbol]?.quantity ?: 0
                 if (order.quantity > held) return Result.failure(Exception("Insufficient shares"))
-            } else {
-                if (order.positionSide == PositionSide.SHORT && requiredMargin > cashBalance) {
+            } else if (effectiveRequiredMargin > 0) {
+                if (effectiveRequiredMargin > cashBalance) {
                     return Result.failure(Exception("Insufficient buying power"))
                 }
             }
@@ -1269,8 +1282,23 @@ class MarketSimulator {
         if (order.side == OrderSide.BUY) {
             if (existing != null && existing.side == PositionSide.SHORT) {
                 val closeQty = minOf(order.quantity, existing.quantity)
-                executePositionClose(existing, closeQty, fillPrice, CloseReason.MANUAL, "ORD")
-                return Result.success(filledOrder)
+                executePositionClose(existing, closeQty, fillPrice, CloseReason.MANUAL, "ORD", recordOrder = false)
+                val excessQty = order.quantity - closeQty
+                if (excessQty > 0) {
+                    val excessMargin = (excessQty * fillPrice * multiplier) / order.leverage
+                    cashBalance -= excessMargin
+                    positions[order.symbol] = MutablePosition(
+                        symbol = order.symbol,
+                        companyName = seed.name,
+                        quantity = excessQty,
+                        averageCost = fillPrice,
+                        side = PositionSide.LONG,
+                        leverage = order.leverage,
+                        takeProfitPrice = order.takeProfitPrice,
+                        stopLossPrice = order.stopLossPrice,
+                        specs = seed.specs
+                    )
+                }
             } else {
                 cashBalance -= requiredMargin
                 if (existing != null && existing.side == PositionSide.LONG) {
@@ -1298,8 +1326,23 @@ class MarketSimulator {
             // SELL
             if (existing != null && existing.side == PositionSide.LONG) {
                 val closeQty = minOf(order.quantity, existing.quantity)
-                executePositionClose(existing, closeQty, fillPrice, CloseReason.MANUAL, "ORD")
-                return Result.success(filledOrder)
+                executePositionClose(existing, closeQty, fillPrice, CloseReason.MANUAL, "ORD", recordOrder = false)
+                val excessQty = order.quantity - closeQty
+                if (excessQty > 0) {
+                    val excessMargin = (excessQty * fillPrice * multiplier) / order.leverage
+                    cashBalance -= excessMargin
+                    positions[order.symbol] = MutablePosition(
+                        symbol = order.symbol,
+                        companyName = seed.name,
+                        quantity = excessQty,
+                        averageCost = fillPrice,
+                        side = PositionSide.SHORT,
+                        leverage = order.leverage,
+                        takeProfitPrice = order.takeProfitPrice,
+                        stopLossPrice = order.stopLossPrice,
+                        specs = seed.specs
+                    )
+                }
             } else {
                 // Short position
                 cashBalance -= requiredMargin
@@ -1411,125 +1454,116 @@ class MarketSimulator {
     fun getEquityHistory(): List<EquityPoint> = equityHistory.toList()
     fun getPriceAlerts(): List<PriceAlert> = priceAlerts.toList()
 
-    private fun persistState() {
-        val app = com.trading.app.TradingApplication.instance ?: return
-        try {
-            val prefs = app.getSharedPreferences("cash_cage_trading_state", android.content.Context.MODE_PRIVATE)
-            val root = org.json.JSONObject()
-            root.put("cashBalance", cashBalance)
-            root.put("initialDeposit", initialDeposit)
-            root.put("orderIdCounter", orderIdCounter)
-            root.put("tradeIdCounter", tradeIdCounter)
-            root.put("txIdCounter", txIdCounter)
-            root.put("alertIdCounter", alertIdCounter)
+    fun exportStateJson(): String {
+        val root = org.json.JSONObject()
+        root.put("cashBalance", cashBalance)
+        root.put("initialDeposit", initialDeposit)
+        root.put("orderIdCounter", orderIdCounter)
+        root.put("tradeIdCounter", tradeIdCounter)
+        root.put("txIdCounter", txIdCounter)
+        root.put("alertIdCounter", alertIdCounter)
 
-            val posArr = org.json.JSONArray()
-            for (mp in positions.values) {
-                val obj = org.json.JSONObject()
-                obj.put("symbol", mp.symbol)
-                obj.put("companyName", mp.companyName)
-                obj.put("quantity", mp.quantity)
-                obj.put("averageCost", mp.averageCost)
-                obj.put("side", mp.side.name)
-                obj.put("leverage", mp.leverage)
-                if (mp.takeProfitPrice != null) obj.put("tp", mp.takeProfitPrice!!)
-                if (mp.stopLossPrice != null) obj.put("sl", mp.stopLossPrice!!)
-                obj.put("openedAt", mp.openedAt)
-                posArr.put(obj)
-            }
-            root.put("positions", posArr)
-
-            val closedArr = org.json.JSONArray()
-            for (ct in closedTrades.take(100)) {
-                val obj = org.json.JSONObject()
-                obj.put("ticket", ct.ticket)
-                obj.put("symbol", ct.symbol)
-                obj.put("name", ct.name)
-                obj.put("side", ct.side.name)
-                obj.put("quantity", ct.quantity)
-                obj.put("entryPrice", ct.entryPrice)
-                obj.put("exitPrice", ct.exitPrice)
-                obj.put("leverage", ct.leverage)
-                obj.put("openedAt", ct.openedAt)
-                obj.put("closedAt", ct.closedAt)
-                obj.put("realizedPnL", ct.realizedPnL)
-                obj.put("reason", ct.reason.name)
-                obj.put("assetClass", ct.assetClass.name)
-                closedArr.put(obj)
-            }
-            root.put("closedTrades", closedArr)
-
-            val ordArr = org.json.JSONArray()
-            for (ord in orders.takeLast(100)) {
-                val obj = org.json.JSONObject()
-                obj.put("id", ord.id)
-                obj.put("symbol", ord.symbol)
-                obj.put("side", ord.side.name)
-                obj.put("type", ord.type.name)
-                obj.put("timeInForce", ord.timeInForce.name)
-                obj.put("quantity", ord.quantity)
-                obj.put("filledQuantity", ord.filledQuantity)
-                if (ord.price != null) obj.put("price", ord.price)
-                if (ord.stopPrice != null) obj.put("stopPrice", ord.stopPrice)
-                obj.put("leverage", ord.leverage)
-                obj.put("positionSide", ord.positionSide.name)
-                if (ord.takeProfitPrice != null) obj.put("tp", ord.takeProfitPrice)
-                if (ord.stopLossPrice != null) obj.put("sl", ord.stopLossPrice)
-                obj.put("status", ord.status.name)
-                if (ord.avgFillPrice != null) obj.put("avgFillPrice", ord.avgFillPrice)
-                obj.put("createdAt", ord.createdAt)
-                obj.put("updatedAt", ord.updatedAt)
-                ordArr.put(obj)
-            }
-            root.put("orders", ordArr)
-
-            val txArr = org.json.JSONArray()
-            for (tx in transactions.take(100)) {
-                val obj = org.json.JSONObject()
-                obj.put("id", tx.id)
-                obj.put("type", tx.type.name)
-                obj.put("amount", tx.amount)
-                obj.put("balanceAfter", tx.balanceAfter)
-                obj.put("description", tx.description)
-                obj.put("timestamp", tx.timestamp)
-                if (tx.reference != null) obj.put("reference", tx.reference)
-                txArr.put(obj)
-            }
-            root.put("transactions", txArr)
-
-            val eqArr = org.json.JSONArray()
-            for (ep in equityHistory.takeLast(120)) {
-                val obj = org.json.JSONObject()
-                obj.put("t", ep.timestamp)
-                obj.put("e", ep.equity)
-                eqArr.put(obj)
-            }
-            root.put("equityHistory", eqArr)
-
-            val alArr = org.json.JSONArray()
-            for (al in priceAlerts.take(50)) {
-                val obj = org.json.JSONObject()
-                obj.put("id", al.id)
-                obj.put("symbol", al.symbol)
-                obj.put("targetPrice", al.targetPrice)
-                obj.put("condition", al.condition.name)
-                obj.put("isTriggered", al.isTriggered)
-                obj.put("createdAt", al.createdAt)
-                if (al.triggeredAt != null) obj.put("triggeredAt", al.triggeredAt)
-                alArr.put(obj)
-            }
-            root.put("priceAlerts", alArr)
-
-            prefs.edit().putString("state_v2", root.toString()).apply()
-        } catch (_: Exception) {
+        val posArr = org.json.JSONArray()
+        for (mp in positions.values) {
+            val obj = org.json.JSONObject()
+            obj.put("symbol", mp.symbol)
+            obj.put("companyName", mp.companyName)
+            obj.put("quantity", mp.quantity)
+            obj.put("averageCost", mp.averageCost)
+            obj.put("side", mp.side.name)
+            obj.put("leverage", mp.leverage)
+            if (mp.takeProfitPrice != null) obj.put("tp", mp.takeProfitPrice!!)
+            if (mp.stopLossPrice != null) obj.put("sl", mp.stopLossPrice!!)
+            obj.put("openedAt", mp.openedAt)
+            posArr.put(obj)
         }
+        root.put("positions", posArr)
+
+        val closedArr = org.json.JSONArray()
+        for (ct in closedTrades.take(100)) {
+            val obj = org.json.JSONObject()
+            obj.put("ticket", ct.ticket)
+            obj.put("symbol", ct.symbol)
+            obj.put("name", ct.name)
+            obj.put("side", ct.side.name)
+            obj.put("quantity", ct.quantity)
+            obj.put("entryPrice", ct.entryPrice)
+            obj.put("exitPrice", ct.exitPrice)
+            obj.put("leverage", ct.leverage)
+            obj.put("openedAt", ct.openedAt)
+            obj.put("closedAt", ct.closedAt)
+            obj.put("realizedPnL", ct.realizedPnL)
+            obj.put("reason", ct.reason.name)
+            obj.put("assetClass", ct.assetClass.name)
+            closedArr.put(obj)
+        }
+        root.put("closedTrades", closedArr)
+
+        val ordArr = org.json.JSONArray()
+        for (ord in orders.takeLast(100)) {
+            val obj = org.json.JSONObject()
+            obj.put("id", ord.id)
+            obj.put("symbol", ord.symbol)
+            obj.put("side", ord.side.name)
+            obj.put("type", ord.type.name)
+            obj.put("timeInForce", ord.timeInForce.name)
+            obj.put("quantity", ord.quantity)
+            obj.put("filledQuantity", ord.filledQuantity)
+            if (ord.price != null) obj.put("price", ord.price)
+            if (ord.stopPrice != null) obj.put("stopPrice", ord.stopPrice)
+            obj.put("leverage", ord.leverage)
+            obj.put("positionSide", ord.positionSide.name)
+            if (ord.takeProfitPrice != null) obj.put("tp", ord.takeProfitPrice)
+            if (ord.stopLossPrice != null) obj.put("sl", ord.stopLossPrice)
+            obj.put("status", ord.status.name)
+            if (ord.avgFillPrice != null) obj.put("avgFillPrice", ord.avgFillPrice)
+            obj.put("createdAt", ord.createdAt)
+            obj.put("updatedAt", ord.updatedAt)
+            ordArr.put(obj)
+        }
+        root.put("orders", ordArr)
+
+        val txArr = org.json.JSONArray()
+        for (tx in transactions.take(100)) {
+            val obj = org.json.JSONObject()
+            obj.put("id", tx.id)
+            obj.put("type", tx.type.name)
+            obj.put("amount", tx.amount)
+            obj.put("balanceAfter", tx.balanceAfter)
+            obj.put("description", tx.description)
+            obj.put("timestamp", tx.timestamp)
+            if (tx.reference != null) obj.put("reference", tx.reference)
+            txArr.put(obj)
+        }
+        root.put("transactions", txArr)
+
+        val eqArr = org.json.JSONArray()
+        for (ep in equityHistory.takeLast(120)) {
+            val obj = org.json.JSONObject()
+            obj.put("t", ep.timestamp)
+            obj.put("e", ep.equity)
+            eqArr.put(obj)
+        }
+        root.put("equityHistory", eqArr)
+
+        val alArr = org.json.JSONArray()
+        for (al in priceAlerts.take(50)) {
+            val obj = org.json.JSONObject()
+            obj.put("id", al.id)
+            obj.put("symbol", al.symbol)
+            obj.put("targetPrice", al.targetPrice)
+            obj.put("condition", al.condition.name)
+            obj.put("isTriggered", al.isTriggered)
+            obj.put("createdAt", al.createdAt)
+            if (al.triggeredAt != null) obj.put("triggeredAt", al.triggeredAt)
+            alArr.put(obj)
+        }
+        root.put("priceAlerts", alArr)
+        return root.toString()
     }
 
-    private fun loadPersistedState(): Boolean {
-        val app = com.trading.app.TradingApplication.instance ?: return false
-        try {
-            val prefs = app.getSharedPreferences("cash_cage_trading_state", android.content.Context.MODE_PRIVATE)
-            val raw = prefs.getString("state_v2", null) ?: return false
+    fun restoreStateJson(raw: String): Boolean {
+        return try {
             val root = org.json.JSONObject(raw)
             cashBalance = root.optDouble("cashBalance", 100_000.0)
             initialDeposit = root.optDouble("initialDeposit", 100_000.0)
@@ -1665,9 +1699,29 @@ class MarketSimulator {
                     )
                 }
             }
-            return true
+            true
         } catch (_: Exception) {
-            return false
+            false
+        }
+    }
+
+    private fun persistState() {
+        val app = com.trading.app.TradingApplication.instance ?: return
+        try {
+            val prefs = app.getSharedPreferences("cash_cage_trading_state", android.content.Context.MODE_PRIVATE)
+            prefs.edit().putString("state_v2", exportStateJson()).apply()
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun loadPersistedState(): Boolean {
+        val app = com.trading.app.TradingApplication.instance ?: return false
+        return try {
+            val prefs = app.getSharedPreferences("cash_cage_trading_state", android.content.Context.MODE_PRIVATE)
+            val raw = prefs.getString("state_v2", null) ?: return false
+            restoreStateJson(raw)
+        } catch (_: Exception) {
+            false
         }
     }
 

@@ -104,8 +104,8 @@ fun PortfolioScreen(
             // 2. Profile Header Section (Clean Trading Account identity without social follower clutter)
             item {
                 PortfolioProfileHeader(
-                    accountName = if (state.accountType == com.trading.app.domain.model.AccountType.DEMO) "Demo Trading Account" else "Alpha Trading Account",
-                    handle = if (state.accountType == com.trading.app.domain.model.AccountType.DEMO) "@xx:)_trader" else "@trader_alpha • Live",
+                    accountName = if (state.accountType == com.trading.app.domain.model.AccountType.DEMO) "Paper Trading ($100K Demo)" else "Live Quotes Paper Sandbox",
+                    handle = if (state.accountType == com.trading.app.domain.model.AccountType.DEMO) "@demo_trader • Practice" else "@sandbox_alpha • Live Quotes",
                     analytics = state.analytics,
                     onViewStatsClick = { viewModel.setShowStatsSheet(true) },
                     onDepositClick = { viewModel.setShowDepositSheet(true) },
@@ -128,7 +128,7 @@ fun PortfolioScreen(
                         viewModel.toggleAccountType()
                         Toast.makeText(
                             context,
-                            "Switched to ${if (state.accountType == com.trading.app.domain.model.AccountType.DEMO) "Live" else "Demo"} Account",
+                            "Switched to ${if (state.accountType == com.trading.app.domain.model.AccountType.DEMO) "Live Quotes Paper Sandbox" else "Demo Practice"} (Virtual capital)",
                             Toast.LENGTH_SHORT
                         ).show()
                     },
@@ -2699,7 +2699,7 @@ private fun AccountControlStrip(
                 .padding(horizontal = 10.dp, vertical = 6.dp)
         ) {
             Text(
-                text = if (isDemo) "DEMO $100K" else "LIVE ACCOUNT",
+                text = if (isDemo) "DEMO $100K" else "PAPER (LIVE QUOTES)",
                 color = if (isDemo) PrimaryBlue else DesignVerifiedGreen,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
@@ -2956,27 +2956,45 @@ private fun AccountSecurityLockOverlay(
                 .padding(horizontal = 32.dp)
                 .clip(RoundedCornerShape(20.dp))
                 .background(Color(0xFF161B22))
+                .border(1.dp, Color(0xFF30363D), RoundedCornerShape(20.dp))
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            // Badge distinguishing this as a demo screen lock, not banking security
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color(0xFF388BFD).copy(alpha = 0.15f))
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = "DEMO TERMINAL LOCKOUT",
+                    color = PrimaryBlue,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.8.sp
+                )
+            }
+
             Text(
-                text = "Secure Trading Vault",
+                text = "Terminal Demo Lock",
                 color = Color.White,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.ExtraBold
             )
             Text(
-                text = "Enter your 4-digit security PIN (default: 1234) or use Biometric authentication to access your trading account.",
+                text = "Simulated workstation screen lock for educational and paper trading purposes (not production banking credentials).\nDefault PIN: 1234 or 0000.",
                 color = Color(0xFF8B949E),
-                fontSize = 13.sp,
-                textAlign = TextAlign.Center
+                fontSize = 12.sp,
+                textAlign = TextAlign.Center,
+                lineHeight = 17.sp
             )
 
             OutlinedTextField(
                 value = enteredPin,
                 onValueChange = { if (it.length <= 4) enteredPin = it },
-                label = { Text("4-Digit PIN") },
+                label = { Text("4-Digit Demo PIN") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -3005,7 +3023,7 @@ private fun AccountSecurityLockOverlay(
                     shape = RoundedCornerShape(10.dp),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
                 ) {
-                    Text("Biometric", color = Color.Black, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                    Text("Demo Biometric", color = Color.Black, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                 }
             }
         }

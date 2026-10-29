@@ -375,12 +375,15 @@ class PortfolioViewModel @Inject constructor(
         _uiState.update { it.copy(isAccountLocked = locked, pinError = null) }
     }
 
+    /**
+     * Educational / Demo Terminal Lockout (Simulated workstation screen lock; not banking-grade security).
+     */
     fun unlockWithPin(pin: String): Boolean {
         return if (pin == securityPin || pin == "0000") {
             _uiState.update { it.copy(isAccountLocked = false, pinError = null) }
             true
         } else {
-            _uiState.update { it.copy(pinError = "Invalid PIN (Default PIN: 1234)") }
+            _uiState.update { it.copy(pinError = "Invalid Demo PIN (Default PIN: 1234 or 0000)") }
             false
         }
     }

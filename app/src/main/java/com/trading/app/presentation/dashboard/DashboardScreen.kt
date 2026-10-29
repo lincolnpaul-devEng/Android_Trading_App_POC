@@ -356,7 +356,7 @@ private fun DashboardAccountEquityStrip(
                             .clip(CircleShape)
                             .background(ProfitGreen)
                     )
-                    Text("Demo Balance", fontSize = 11.sp, color = Color(0xFF8B949E))
+                    Text("Paper Trading (Virtual)", fontSize = 11.sp, color = Color(0xFF8B949E))
                 }
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(

@@ -6,8 +6,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Controls whether the app uses live Finnhub data or the local simulator,
- * as well as whether the user is trading on a Demo Account or Live Account.
+ * Controls whether the app feeds quotes from live Finnhub REST/WebSocket + Marketaux news
+ * or the offline random-walk simulator.
+ *
+ * NOTE ON EXECUTION:
+ * All order operations route to [com.trading.app.data.simulator.MarketSimulator].
+ * The application operates strictly as an institutional paper-trading / educational simulator
+ * with virtual capital. [AccountType.DEMO] represents the resetable $100K practice balance,
+ * while [AccountType.LIVE] represents the advanced sandbox tier tracking live quotes.
+ * Neither routes real capital to an external brokerage.
  */
 enum class DataSourceMode {
     /** Use only the local market simulator — no network calls */
