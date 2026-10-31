@@ -32,16 +32,46 @@ class DashboardViewModel @Inject constructor(
     private fun loadAccountSummary() {
         viewModelScope.launch {
             portfolioRepository.getPortfolio().collect { p ->
+                val totalCost = p.totalCostBasis
+                val returnPct = if (totalCost > 0.0) {
+                    (p.totalUnrealizedPnL / totalCost) * 100.0
+                } else if (p.equity > 0.0 && p.dayPnL != 0.0) {
+                    (p.dayPnL / p.equity) * 100.0
+                } else {
+                    0.0
+                }
                 _uiState.update {
                     it.copy(
+                        portfolio = p,
+                        positions = p.positions,
                         totalEquity = p.equity,
                         availableMargin = p.buyingPower,
-                        unrealizedPnL = p.totalUnrealizedPnL
+                        unrealizedPnL = p.totalUnrealizedPnL,
+                        dayPnL = p.dayPnL,
+                        todayReturnPct = returnPct,
+                        totalCostBasis = totalCost,
+                        investedAmount = totalCost,
+                        totalProfitAmount = p.totalUnrealizedPnL
                     )
                 }
             }
         }
     }
+
+    fun depositFunds(amount: Double) {
+        viewModelScope.launch {
+            portfolioRepository.depositFunds(amount)
+        }
+    }
+
+    fun withdrawFunds(amount: Double) {
+        viewModelScope.launch {
+            portfolioRepository.withdrawFunds(amount)
+        }
+    }
+
+    fun setShowDepositSheet(show: Boolean) = _uiState.update { it.copy(showDepositSheet = show) }
+    fun setShowWithdrawSheet(show: Boolean) = _uiState.update { it.copy(showWithdrawSheet = show) }
 
     private fun loadMarketData() {
         viewModelScope.launch {
@@ -77,4 +107,11 @@ class DashboardViewModel @Inject constructor(
 
     fun showSpecs(quote: StockQuote) = _uiState.update { it.copy(selectedSpecsQuote = quote) }
     fun dismissSpecs() = _uiState.update { it.copy(selectedSpecsQuote = null) }
+
+    fun setViewMode(mode: DashboardViewMode) = _uiState.update { it.copy(selectedViewMode = mode) }
+    fun toggleViewMode() = _uiState.update { 
+        it.copy(
+            selectedViewMode = if (it.selectedViewMode == DashboardViewMode.OVERVIEW) DashboardViewMode.ANALYTICS_WHEEL else DashboardViewMode.OVERVIEW
+        )
+    }
 }

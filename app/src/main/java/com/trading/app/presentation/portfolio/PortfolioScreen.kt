@@ -2437,7 +2437,7 @@ private fun PacksView(onSelectSymbol: (String) -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DepositFundsBottomSheet(
+fun DepositFundsBottomSheet(
     onDismiss: () -> Unit,
     onDeposit: (Double) -> Unit
 ) {
@@ -2513,7 +2513,7 @@ private fun DepositFundsBottomSheet(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun WithdrawFundsBottomSheet(
+fun WithdrawFundsBottomSheet(
     onDismiss: () -> Unit,
     onWithdraw: (Double) -> Unit
 ) {

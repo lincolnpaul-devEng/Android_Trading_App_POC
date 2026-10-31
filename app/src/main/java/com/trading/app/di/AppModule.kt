@@ -4,7 +4,9 @@ import com.trading.app.data.repository.MarketDataRepositoryImpl
 import com.trading.app.data.repository.NewsRepositoryImpl
 import com.trading.app.data.repository.OrderRepositoryImpl
 import com.trading.app.data.repository.PortfolioRepositoryImpl
+import com.trading.app.data.repository.QuizRepositoryImpl
 import com.trading.app.data.repository.WatchlistRepositoryImpl
+import com.trading.app.domain.quiz.repository.QuizRepository
 import com.trading.app.domain.repository.MarketDataRepository
 import com.trading.app.domain.repository.NewsRepository
 import com.trading.app.domain.repository.OrderRepository
@@ -39,4 +41,8 @@ abstract class AppModule {
     @Binds
     @Singleton
     abstract fun bindNewsRepository(impl: NewsRepositoryImpl): NewsRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindQuizRepository(impl: QuizRepositoryImpl): QuizRepository
 }

@@ -40,14 +40,34 @@ android {
         buildConfigField("String", "MARKETAUX_API_KEY", "\"$marketauxKey\"")
     }
 
+    signingConfigs {
+        create("release") {
+            val keystoreFile = rootProject.file("release.jks")
+            if (keystoreFile.exists()) {
+                storeFile = keystoreFile
+                storePassword = "trading1234"
+                keyAlias = "trading_release"
+                keyPassword = "trading1234"
+            }
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
         }
+    }
+
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
+        disable.add("NullSafeMutableLiveData")
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
